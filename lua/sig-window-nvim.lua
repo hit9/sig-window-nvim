@@ -83,7 +83,7 @@ local function show_signature_window(label, active_ix_start, active_ix_end, conf
   local w_bufnr = vim.api.nvim_create_buf(false, true)
 
   table.insert(other_labels, 1, label)  -- put activeSignature label the first line
-  vim.api.nvim_buf_set_lines(w_bufnr, 0, -2, true, other_labels)
+  vim.api.nvim_buf_set_lines(w_bufnr, 0, -1, true, other_labels)
   highlight_text(w_bufnr, active_ix_start, active_ix_end, config.hl_group)
 
   local lines = other_labels
