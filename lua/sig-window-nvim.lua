@@ -81,9 +81,9 @@ local function show_signature_window(label, active_ix_start, active_ix_end, conf
   local bufnr = vim.api.nvim_get_current_buf()
   local w_bufnr = vim.api.nvim_create_buf(false, true)
 
-  local all_labels = {label}
+  local all_labels = vim.split(label, "\n", { plain = true })
   for i, v in ipairs(other_labels) do
-    all_labels[i + 1] = v
+    vim.list_extend(all_labels, vim.split(v, "\n", { plain = true }))
   end
 
   vim.api.nvim_buf_set_lines(w_bufnr, 0, -1, true, all_labels)
