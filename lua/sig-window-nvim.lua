@@ -151,15 +151,26 @@ function module.request_signature_help(opts)
   local config = module.config[opts.buf]
   if not config then return end
 
+  local clients = vim.lsp.get_active_clients({ bufnr = opts.buf })
+  if #clients == 0 then return end -- 如果没有活动的 client，直接返回
+
+  local position_encoding = clients[1].offset_encoding or clients[1].position_encoding
+  if not position_encoding then
+    position_encoding = "utf-16"
+  end
+
+  local params = vim.lsp.util.make_position_params(vim.api.nvim_get_current_win(), position_encoding)
+
   vim.lsp.buf_request(
     opts.buf,
     'textDocument/signatureHelp',
-    vim.lsp.util.make_position_params(),
+    params,
     function(err, result, ctx, _)
       module.signature_help_handler(err, result, ctx, config)
     end
   )
 end
+
 
 function module.set_config(bufnr, config)
   config = config or {}
