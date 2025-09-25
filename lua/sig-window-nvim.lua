@@ -148,11 +148,16 @@ function module.close_signature_help()
 end
 
 function module.request_signature_help(opts)
+  local config = module.config[opts.buf]
+  if not config then return end
+
   vim.lsp.buf_request(
     opts.buf,
     'textDocument/signatureHelp',
     vim.lsp.util.make_position_params(),
-    vim.lsp.with(module.signature_help_handler, module.config[opts.buf])
+    function(err, result, ctx, _)
+      module.signature_help_handler(err, result, ctx, config)
+    end
   )
 end
 
@@ -163,35 +168,37 @@ function module.set_config(bufnr, config)
   for k, v in pairs(config) do module.config[bufnr][k] = v end
 end
 
-function module.on_attach(client, bufnr, config)
-  if client.server_capabilities.signatureHelpProvider then
-    module.set_config(bufnr, config)
-
-    local au_group_name = 'sig_window_nvim_aug_' .. bufnr
-    local request_opts = { callback = module.request_signature_help, group = au_group_name, buffer = bufnr }
-    local close_opts = { callback = module.close_signature_help, group = au_group_name, buffer = bufnr }
-    vim.api.nvim_create_augroup(au_group_name, {clear = true})
-    vim.api.nvim_create_autocmd('InsertEnter', request_opts)
-    vim.api.nvim_create_autocmd('CursorMovedI', request_opts)
-    vim.api.nvim_create_autocmd('InsertLeave', close_opts)
-    vim.api.nvim_create_autocmd('BufLeave', close_opts)
-    vim.api.nvim_create_autocmd('WinLeave', close_opts)
-    vim.api.nvim_create_autocmd('TabLeave', close_opts)
-  end
-end
-
 function module.setup(swn_config)
-  local start_lsp_client = vim.lsp.start_client
-  vim.lsp.start_client = function(lsp_config)
-    local on_attach = lsp_config.on_attach
-    lsp_config.on_attach = function(client, bufnr)
-      module.on_attach(client, bufnr, swn_config)
-      if on_attach ~= nil then
-        on_attach(client, bufnr)
+  module.user_config = swn_config or {}
+
+  local grp = vim.api.nvim_create_augroup('sig_window_nvim_attach', { clear = true })
+  vim.api.nvim_create_autocmd('LspAttach', {
+    group = grp,
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      local bufnr  = args.buf
+      if not (client and client.server_capabilities and client.server_capabilities.signatureHelpProvider) then
+        return
       end
-    end
-    return start_lsp_client(lsp_config)
-  end
+
+      module.set_config(bufnr, module.user_config)
+
+      local aug = 'sig_window_nvim_aug_' .. bufnr
+      vim.api.nvim_create_augroup(aug, { clear = true })
+
+      local request = { group = aug, buffer = bufnr, callback = function()
+        module.request_signature_help({ buf = bufnr })
+      end }
+      local close = { group = aug, buffer = bufnr, callback = module.close_signature_help }
+
+      vim.api.nvim_create_autocmd('InsertEnter',  request)
+      vim.api.nvim_create_autocmd('CursorMovedI', request)
+      vim.api.nvim_create_autocmd('InsertLeave',  close)
+      vim.api.nvim_create_autocmd('BufLeave',     close)
+      vim.api.nvim_create_autocmd('WinLeave',     close)
+      vim.api.nvim_create_autocmd('TabLeave',     close)
+    end,
+  })
 end
 
 return module
