@@ -3,7 +3,7 @@ local function get_active_param_indices(active_param_ix, params, label)
     local active_param = params[active_param_ix + 1].label
 
     if type(active_param) == 'table' then
-        return unpack(active_param)
+      return unpack(active_param)
     end
 
     if type(active_param) == 'string' then
@@ -22,9 +22,9 @@ local function parse_signature_help_result(lsp_result)
   local active_ix_start, active_ix_end = get_active_param_indices(active_param, sig.parameters, sig.label)
   local other_labels = {}
   for i, sigx in ipairs(lsp_result.signatures) do
-      if i ~= sig_idx then
-          table.insert(other_labels, sigx.label)
-      end
+    if i ~= sig_idx then
+      table.insert(other_labels, sigx.label)
+    end
   end
   return sig.label, sig.parameters, active_ix_start, active_ix_end, other_labels
 end
@@ -52,22 +52,22 @@ local function calc_window_dimensions(labels, max_width, max_height)
 end
 
 local function window_config(label, config, width, height, other_labels)
-    if config.window_config then
-      return config.window_config(label, config, width, height, other_labels)
-    end
+  if config.window_config then
+    return config.window_config(label, config, width, height, other_labels)
+  end
 
-    return {
-      relative = 'editor',
-      anchor = 'NE',
-      width = width,
-      height = height,
-      row = 0,
-      col = vim.api.nvim_win_get_width(0),
-      focusable = false,
-      zindex = config.zindex,
-      style = 'minimal',
-      border = config.border,
-    }
+  return {
+    relative = 'editor',
+    anchor = 'NE',
+    width = width,
+    height = height,
+    row = 0,
+    col = vim.api.nvim_win_get_width(0),
+    focusable = false,
+    zindex = config.zindex,
+    style = 'minimal',
+    border = config.border,
+  }
 end
 
 local function close_signature_window(bufnr)
@@ -81,9 +81,9 @@ local function show_signature_window(label, active_ix_start, active_ix_end, conf
   local bufnr = vim.api.nvim_get_current_buf()
   local w_bufnr = vim.api.nvim_create_buf(false, true)
 
-  local all_labels = vim.split(label, "\n", { plain = true })
+  local all_labels = vim.split(label, '\n', { plain = true })
   for i, v in ipairs(other_labels) do
-    vim.list_extend(all_labels, vim.split(v, "\n", { plain = true }))
+    vim.list_extend(all_labels, vim.split(v, '\n', { plain = true }))
   end
 
   vim.api.nvim_buf_set_lines(w_bufnr, 0, -1, true, all_labels)
@@ -148,50 +148,74 @@ function module.close_signature_help()
 end
 
 function module.request_signature_help(opts)
-  vim.lsp.buf_request(
-    opts.buf,
-    'textDocument/signatureHelp',
-    vim.lsp.util.make_position_params(),
-    vim.lsp.with(module.signature_help_handler, module.config[opts.buf])
-  )
+  local config = module.config[opts.buf]
+  if not config then
+    return
+  end
+
+  local clients = vim.lsp.get_active_clients({ bufnr = opts.buf })
+  if #clients == 0 then
+    return
+  end -- 如果没有活动的 client，直接返回
+
+  local position_encoding = clients[1].offset_encoding or clients[1].position_encoding
+  if not position_encoding then
+    position_encoding = 'utf-16'
+  end
+
+  local params = vim.lsp.util.make_position_params(vim.api.nvim_get_current_win(), position_encoding)
+
+  vim.lsp.buf_request(opts.buf, 'textDocument/signatureHelp', params, function(err, result, ctx, _)
+    module.signature_help_handler(err, result, ctx, config)
+  end)
 end
 
 function module.set_config(bufnr, config)
   config = config or {}
   module.config[bufnr] = {}
-  for k, v in pairs(module.default_config) do module.config[bufnr][k] = v end
-  for k, v in pairs(config) do module.config[bufnr][k] = v end
-end
-
-function module.on_attach(client, bufnr, config)
-  if client.server_capabilities.signatureHelpProvider then
-    module.set_config(bufnr, config)
-
-    local au_group_name = 'sig_window_nvim_aug_' .. bufnr
-    local request_opts = { callback = module.request_signature_help, group = au_group_name, buffer = bufnr }
-    local close_opts = { callback = module.close_signature_help, group = au_group_name, buffer = bufnr }
-    vim.api.nvim_create_augroup(au_group_name, {clear = true})
-    vim.api.nvim_create_autocmd('InsertEnter', request_opts)
-    vim.api.nvim_create_autocmd('CursorMovedI', request_opts)
-    vim.api.nvim_create_autocmd('InsertLeave', close_opts)
-    vim.api.nvim_create_autocmd('BufLeave', close_opts)
-    vim.api.nvim_create_autocmd('WinLeave', close_opts)
-    vim.api.nvim_create_autocmd('TabLeave', close_opts)
+  for k, v in pairs(module.default_config) do
+    module.config[bufnr][k] = v
+  end
+  for k, v in pairs(config) do
+    module.config[bufnr][k] = v
   end
 end
 
 function module.setup(swn_config)
-  local start_lsp_client = vim.lsp.start_client
-  vim.lsp.start_client = function(lsp_config)
-    local on_attach = lsp_config.on_attach
-    lsp_config.on_attach = function(client, bufnr)
-      module.on_attach(client, bufnr, swn_config)
-      if on_attach ~= nil then
-        on_attach(client, bufnr)
+  module.user_config = swn_config or {}
+
+  local grp = vim.api.nvim_create_augroup('sig_window_nvim_attach', { clear = true })
+  vim.api.nvim_create_autocmd('LspAttach', {
+    group = grp,
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      local bufnr = args.buf
+      if not (client and client.server_capabilities and client.server_capabilities.signatureHelpProvider) then
+        return
       end
-    end
-    return start_lsp_client(lsp_config)
-  end
+
+      module.set_config(bufnr, module.user_config)
+
+      local aug = 'sig_window_nvim_aug_' .. bufnr
+      vim.api.nvim_create_augroup(aug, { clear = true })
+
+      local request = {
+        group = aug,
+        buffer = bufnr,
+        callback = function()
+          module.request_signature_help({ buf = bufnr })
+        end,
+      }
+      local close = { group = aug, buffer = bufnr, callback = module.close_signature_help }
+
+      vim.api.nvim_create_autocmd('InsertEnter', request)
+      vim.api.nvim_create_autocmd('CursorMovedI', request)
+      vim.api.nvim_create_autocmd('InsertLeave', close)
+      vim.api.nvim_create_autocmd('BufLeave', close)
+      vim.api.nvim_create_autocmd('WinLeave', close)
+      vim.api.nvim_create_autocmd('TabLeave', close)
+    end,
+  })
 end
 
 return module
